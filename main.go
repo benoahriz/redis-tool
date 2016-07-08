@@ -10,12 +10,22 @@ import (
 )
 
 var (
-	server       = kingpin.Flag("server", "IP or DNS of redis server (e.g. 'redis.nitroplatformdev.com')").Default("localhost").String()
+	server       = kingpin.Flag("server", "IP or DNS of redis server (e.g. 'redis.example.com')").Default("localhost").String()
 	port         = kingpin.Flag("port", "redis port to connect to").Default("6379").Int()
-	redisCommand = kingpin.Flag("command", "redis command").Default("delete").String()
+	redisCommand = kingpin.Flag("command", "redis command").Default("nothing").String()
 	doKeys       = kingpin.Flag("keys", "key or keys to do stuff with").Default("default").String()
 	verbose      = kingpin.Flag("verbose", "Produce verbose output").Short('v').Default("false").Bool()
 )
+
+// stringInSlice a rudimentary contains function
+func stringInSlice(a string, list []string) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
 
 // Connect creates redis client connection
 func Connect() *redis.Client {
@@ -31,7 +41,7 @@ func Connect() *redis.Client {
 	return client
 }
 
-// Set the value of keysToSlice
+// add keys to a slice
 func keysToSlice(s string) []string {
 	var sKeys = []string{}
 	if strings.Contains(s, ",") == true {
@@ -43,56 +53,60 @@ func keysToSlice(s string) []string {
 }
 
 // collectKeys collects keys matching patterns
-func collectKeys() []string {
+func collectKeys(sKeys []string) []string {
 	client := Connect()
 	var returnKeys = []string{}
-	iter := client.Scan(0, "user.profile.id.16411652.v1", 0).Iterator()
+	iter := client.Scan(0, "", 0).Iterator()
 	for iter.Next() {
 		// fmt.Println(iter.Val())
-		returnKeys = append(returnKeys, iter.Val())
+		if stringInSlice(iter.Val(), sKeys) == true {
+			returnKeys = append(returnKeys, iter.Val())
+		}
 	}
 	if err := iter.Err(); err != nil {
 		panic(err)
 	}
-	// fmt.Println(returnKeys)
-	fmt.Println(len(returnKeys))
+	fmt.Println(returnKeys)
+	fmt.Println("Found", len(returnKeys), "keys")
 	return returnKeys
 }
 
-func ExampleClient_Scan() {
+// deleteKeys just deletes keys and returns bool if it deleted anything
+func deleteKeys(sKeys []string) bool {
 	client := Connect()
-	var n int
-	for {
-		var cursor int64
-		var keyss []string
-		var err error
-		cursor, keyss, err = client.Scan(cursor, "account.contacts.16408696", 10).Result()
-		if err != nil {
-			panic(err)
-		}
-		n += len(keyss)
-		if cursor == 0 {
-			break
-		}
+	for key := range sKeys {
+		client.Del(sKeys[key])
+		fmt.Println(key)
+		return true
 	}
+	return false
+}
 
-	fmt.Printf("found %d keys\n", n)
-	// Output: found 33 keys
+// deleteKeys just deletes keys and returns bool if it deleted anything
+func createKeys(sKeys []string) bool {
+	client := Connect()
+	for key := range sKeys {
+		client.Set(sKeys[key], "test", 0)
+		fmt.Println(key)
+		return true
+	}
+	return false
 }
 
 func main() {
 	kingpin.UsageTemplate(kingpin.CompactUsageTemplate).Version("0.0.1").Author("Benjamin Rizkowsky")
 	kingpin.CommandLine.Help = "A simple redis tool."
 	kingpin.Parse()
-	// collectKeys()
-	ExampleClient_Scan()
-	// keys1 := keysToSlice("test1,test2,test3")
-	// keys2 := keysToSlice(*doKeys)
-	// for i := range keys2 {
-	// 	fmt.Println(keys2[i])
-	// }
-	// for i := range keys1 {
-	// 	fmt.Println(keys1[i])
-	// }
+	fmt.Println("Command:", *redisCommand)
+	switch {
+	case *redisCommand == "delete":
+		deleteKeys(collectKeys(keysToSlice(*doKeys)))
+		fmt.Println("test:", *redisCommand)
+	case *redisCommand == "test":
+		createKeys(keysToSlice(*doKeys))
+		collectKeys(keysToSlice(*doKeys))
+	case *redisCommand == "nothing":
+		fmt.Println("doing nothing.")
+	}
 
 }
